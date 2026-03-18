@@ -1,0 +1,43 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install bleak bleak-retry-connector
+
+      - name: Check Python syntax
+        run: |
+          python3 -m py_compile custom_components/ultra_jack/*.py
+          echo "Syntax OK"
+
+      - name: Validate manifest.json
+        run: |
+          python3 -c "
+          import json, sys
+          with open('custom_components/ultra_jack/manifest.json') as f:
+              m = json.load(f)
+          required = ['domain','name','version','requirements','iot_class']
+          for k in required:
+              assert k in m, f'Missing key: {k}'
+          print('manifest.json OK')
+          "
+
+      - name: Validate HACS
+        uses: hacs/action@main
+        with:
+          category: integration

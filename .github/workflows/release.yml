@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate manifest version matches release tag
+        run: |
+          VERSION=$(cat custom_components/ultra_jack/manifest.json | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])")
+          TAG=${GITHUB_REF#refs/tags/v}
+          if [ "$VERSION" != "$TAG" ]; then
+            echo "manifest.json version ($VERSION) does not match release tag ($TAG)"
+            exit 1
+          fi
+
+      - name: Create release zip
+        run: |
+          cd custom_components
+          zip -r ../ultra_jack.zip ultra_jack/
+          cd ..
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ultra_jack.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

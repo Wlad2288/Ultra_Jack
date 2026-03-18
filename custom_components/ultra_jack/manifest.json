@@ -1,0 +1,12 @@
+{
+  "domain": "ultra_jack",
+  "name": "Ultra Jack",
+  "version": "1.0.0",
+  "documentation": "https://github.com/YOUR_GITHUB_USERNAME/ultra_jack",
+  "issue_tracker": "https://github.com/YOUR_GITHUB_USERNAME/ultra_jack/issues",
+  "requirements": ["bleak>=0.21.0", "bleak-retry-connector>=3.0.0"],
+  "dependencies": ["bluetooth"],
+  "codeowners": [],
+  "iot_class": "local_polling",
+  "bluetooth": [{"local_name": "Jackery_HL*", "connectable": true}]
+}

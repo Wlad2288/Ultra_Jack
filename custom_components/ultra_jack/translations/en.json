@@ -1,0 +1,23 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Ultra Jack",
+        "description": "Select your Jackery HL-series device",
+        "data": {"device_address": "Device"}
+      },
+      "confirm": {
+        "title": "Ultra Jack",
+        "description": "Set up {name}?"
+      }
+    },
+    "abort": {
+      "no_devices_found": "No Jackery HL-series devices found nearby. Make sure the device is powered on and within Bluetooth range.",
+      "already_configured": "This device is already configured.",
+      "not_jackery_hl": "Not a supported Jackery HL-series device."
+    },
+    "error": {
+      "device_not_found": "Selected device could not be found."
+    }
+  }
+}
