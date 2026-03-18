@@ -1,14 +1,14 @@
 # Ultra Jack
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![GitHub release](https://img.shields.io/github/release/YOUR_GITHUB_USERNAME/ultra_jack.svg)](https://github.com/YOUR_GITHUB_USERNAME/ultra_jack/releases)
+[![GitHub release](https://img.shields.io/github/release/Wlad2288/ultra_jack.svg)](https://github.com/Wlad2288/ultra_jack/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Home Assistant integration for Jackery HL-series portable power stations.**
+**Home Assistant integration for Jackery Home Power stations.**
 
 Communicates directly over **Bluetooth Low Energy** — no cloud, no Jackery account, no internet connection required.
 
-> Protocol reverse-engineered from HCI snoop logs of the official Jackery Home app.  
+> Developed by analysing BLE traffic between the official app and the device using standard debugging tools.  
 > Tested on the **Jackery Explorer 2000 Ultra**.
 
 ---
@@ -49,14 +49,14 @@ response — no hardcoded device-specific values.
 ## Installation via HACS (recommended)
 
 1. Open HACS → **Integrations** → ⋮ → **Custom repositories**
-2. Add `https://github.com/YOUR_GITHUB_USERNAME/ultra_jack` → Category: **Integration**
+2. Add `https://github.com/Wlad2288/ultra_jack` → Category: **Integration**
 3. Search for **Ultra Jack** → **Download**
 4. Restart Home Assistant
 5. **Settings → Devices & Services → Add Integration → Ultra Jack**
 
 ## Manual Installation
 
-1. Download the [latest release](https://github.com/YOUR_GITHUB_USERNAME/ultra_jack/releases/latest) ZIP
+1. Download the [latest release](https://github.com/Wlad2288/ultra_jack/releases/latest) ZIP
 2. Extract and copy the `ultra_jack` folder to `/config/custom_components/ultra_jack/`
 3. Restart Home Assistant
 4. **Settings → Devices & Services → Add Integration → Ultra Jack**
@@ -112,8 +112,9 @@ logger:
 The Jackery HL-series uses a custom JSON protocol over BLE characteristics
 `0xFF01` (write) / `0xFF02` (notify) within service `0xFFFF`.
 
-Fully reverse-engineered by capturing HCI snoop logs from Android while the
+Developed by capturing BLE traffic between the official app and the device using standard debugging tools. The
 official Jackery Home app communicated with a Jackery Explorer 2000 Ultra.
+
 
 Key findings:
 - No encryption — plain JSON over BLE
@@ -123,6 +124,13 @@ Key findings:
 - Meter IDs and `dev_sn` discovered dynamically from `device_get` response
 
 ---
+
+
+## Disclaimer
+
+This is an **unofficial, community-developed** integration. It is not affiliated with, endorsed by, or supported by Jackery Inc.
+
+Jackery and Explorer are trademarks of Jackery Inc. Use of these names is for identification purposes only.
 
 ## License
 
