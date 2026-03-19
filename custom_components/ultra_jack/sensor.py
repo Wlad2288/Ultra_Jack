@@ -61,7 +61,24 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: UltraJackCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(UltraJackSensor(coordinator, d) for d in SENSORS)
+    entities = [UltraJackSensor(coordinator, d) for d in SENSORS]
+    entities.append(
+        UltraJackEnergySensor(
+            coordinator,
+            "energy_charged",
+            "Energy Charged",
+            "ac_input_power",
+        )
+    )
+    entities.append(
+        UltraJackEnergySensor(
+            coordinator,
+            "energy_discharged",
+            "Energy Discharged",
+            "ac_output_power",
+        )
+    )
+    async_add_entities(entities)
 
 
 class UltraJackSensor(CoordinatorEntity[UltraJackCoordinator], SensorEntity):
@@ -86,3 +103,68 @@ class UltraJackSensor(CoordinatorEntity[UltraJackCoordinator], SensorEntity):
         if self.coordinator.data is None:
             return None
         return self.coordinator.data.get(self.entity_description.key)
+
+
+from datetime import datetime, timezone
+from homeassistant.helpers.restore_state import RestoreEntity
+
+
+class UltraJackEnergySensor(
+    CoordinatorEntity[UltraJackCoordinator],
+    SensorEntity,
+    RestoreEntity,
+):
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+
+    def __init__(self, coordinator, key, name, power_key):
+        super().__init__(coordinator)
+        self._attr_name = name
+        self._power_key = power_key
+
+        self._attr_unique_id = f"{coordinator.device_address}_{key}"
+
+        self._energy = 0.0
+        self._last_update: datetime | None = None
+
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.device_address)},
+            name=coordinator.device_name,
+            manufacturer="Jackery",
+            model="Explorer 2000 Ultra (HL Series)",
+            serial_number=coordinator.device_sn,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+
+        last_state = await self.async_get_last_state()
+        if last_state and last_state.state not in ("unknown", "unavailable"):
+            try:
+                self._energy = float(last_state.state)
+            except ValueError:
+                self._energy = 0.0
+
+    @property
+    def native_value(self):
+        return round(self._energy, 4)
+
+    def _update_energy(self):
+        data = self.coordinator.data
+        if data is None:
+            return
+
+        power_w = max(0, data.get(self._power_key, 0) or 0)
+        now = datetime.now(timezone.utc)
+
+        if self._last_update is not None:
+            delta_h = (now - self._last_update).total_seconds() / 3600.0
+            self._energy += (power_w / 1000.0) * delta_h
+
+        self._last_update = now
+
+    def _handle_coordinator_update(self) -> None:
+        self._update_energy()
+        self.async_write_ha_state()
