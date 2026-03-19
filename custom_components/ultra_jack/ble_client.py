@@ -1,4 +1,4 @@
-"""BLE Client for Jackery HL Series devices — v10.
+"""BLE Client for Ultra Jack Series devices — v10.
 
 Fragment protocol:
   0x14 continuation:  6-byte header, data = raw[6:]
@@ -158,7 +158,7 @@ class _Assembler:
         self._has_continuation = False
 
 
-class JackeryHLBleClient:
+class UltraJackBleClient:
     def __init__(self, device_sn: str):
         self._sn    = device_sn
         self._client: Optional[BleakClient] = None

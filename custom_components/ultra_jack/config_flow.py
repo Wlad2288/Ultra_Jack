@@ -1,4 +1,4 @@
-"""Config flow for Jackery HL Series integration."""
+"""Config flow for Ultra Jack Series integration."""
 
 import logging
 from typing import Any
@@ -32,8 +32,8 @@ def _extract_sn_from_name(name: str) -> str:
     return name
 
 
-class JackeryHLConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Jackery HL Series."""
+class UltraJackConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Ultra Jack Series."""
 
     VERSION = 1
 
@@ -46,7 +46,7 @@ class JackeryHLConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle bluetooth discovery."""
         name = discovery_info.name or ""
         if not name.startswith(HL_PREFIX):
-            return self.async_abort(reason="not_jackery_hl")
+            return self.async_abort(reason="not_ultra_jack")
 
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
