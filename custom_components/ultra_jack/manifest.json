@@ -1,12 +1,16 @@
 {
-  "domain": "ultra_jack",
-  "name": "Ultra Jack",
-  "version": "1.0.1",
-  "documentation": "https://github.com/Wlad2288/ultra_jack",
-  "issue_tracker": "https://github.com/Wlad2288/ultra_jack/issues",
+  "domain": "jackery_hl",
+  "name": "Jackery HL Series",
+  "version": "1.0.0",
+  "documentation": "https://github.com/your-repo/jackery-hl-homeassistant",
   "requirements": ["bleak>=0.21.0", "bleak-retry-connector>=3.0.0"],
   "dependencies": ["bluetooth"],
   "codeowners": [],
   "iot_class": "local_polling",
-  "bluetooth": [{"local_name": "Jackery_HL*", "connectable": true}]
+  "bluetooth": [
+    {
+      "local_name": "Jackery_HL*",
+      "connectable": true
+    }
+  ]
 }
