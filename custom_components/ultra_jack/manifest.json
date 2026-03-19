@@ -2,12 +2,11 @@
   "domain": "ultra_jack",
   "name": "Ultra Jack",
   "version": "1.0.0",
-  "documentation": "https://github.com/Wlad2288/ultra_jack",
-  "issue_tracker": "https://github.com/Wlad2288/ultra_jack/issues",
+  "documentation": "https://github.com/Wlad2288/Ultra_Jack",
+  "issue_tracker": "https://github.com/Wlad2288/Ultra_Jack/issues",
   "requirements": ["bleak>=0.21.0", "bleak-retry-connector>=3.0.0"],
   "dependencies": ["bluetooth"],
-  "codeowners": [],
+  "codeowners": ["@Wlad2288"],
   "iot_class": "local_polling",
-  "config_flow": true,
   "bluetooth": [{"local_name": "Jackery_HL*", "connectable": true}]
 }

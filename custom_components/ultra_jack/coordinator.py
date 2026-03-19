@@ -60,7 +60,7 @@ def _build_sensor_data(meters: dict) -> dict:
 
 
 class UltraJackCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Coordinator that polls a Jackery HL-series device over BLE."""
+    """Coordinator that polls a Ultra Jack-series device over BLE."""
 
     def __init__(self, hass: HomeAssistant, config_data: dict) -> None:
         super().__init__(
