@@ -12,7 +12,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+<<<<<<< HEAD
     ALL_METER_IDS,
+=======
+>>>>>>> 5e7075f386841f99162f8f73e338b4009fa8af96
     DOMAIN,
     CONF_DEVICE_ADDRESS,
     CONF_DEVICE_NAME,
@@ -121,9 +124,13 @@ class UltraJackCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             # query_data() discovers meter IDs dynamically from device_get response
+<<<<<<< HEAD
             response = await self._client.query_data(
                 [str(m) for m in ALL_METER_IDS], timeout=12.0
             )
+=======
+            response = await self._client.query_data(timeout=12.0)
+>>>>>>> 5e7075f386841f99162f8f73e338b4009fa8af96
         finally:
             await self._disconnect()
 
