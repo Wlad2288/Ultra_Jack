@@ -23,3 +23,13 @@ All notable changes to this project will be documented in this file.
 ### Added Energy Dashboard Support
 - Added new sensors "Energy Charged" and "Energy Discharged"
 - Values are calculated in kWh based on changes of the actual capacity
+
+## [1.1.1] - 2026-03-19
+
+### Fixed
+- Energy sensors (Energy Charged / Energy Discharged) no longer show a false
+  spike after a Home Assistant restart. Previously, the first coordinator update
+  after restart could add a large incorrect delta because the last known capacity
+  was not properly seeded from restored state. The sensor now seeds
+  `_last_capacity` from current coordinator data during initialisation and
+  accumulates only real changes from that point forward.
