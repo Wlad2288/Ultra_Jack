@@ -7,6 +7,7 @@
   "requirements": ["bleak>=0.21.0", "bleak-retry-connector>=3.0.0"],
   "dependencies": ["bluetooth"],
   "codeowners": ["@Wlad2288"],
+  "config_flow": true,
   "iot_class": "local_polling",
   "bluetooth": [{"local_name": "Jackery_HL*", "connectable": true}]
 }
