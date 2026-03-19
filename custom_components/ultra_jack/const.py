@@ -1,6 +1,6 @@
-"""Constants for Jackery HL Series integration."""
+"""Constants for Ultra Jack Series integration."""
 
-DOMAIN = "jackery_hl"
+DOMAIN = "ultra_jack"
 
 CONF_DEVICE_ADDRESS = "device_address"
 CONF_DEVICE_NAME    = "device_name"
