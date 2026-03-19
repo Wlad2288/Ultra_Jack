@@ -17,3 +17,8 @@ All notable changes to this project will be documented in this file.
 - Developed by capturing BLE traffic between the official app and the device using standard debugging tools
 - Pure local BLE communication — no cloud, no Jackery account required
 - Supports Jackery HL-series devices (BLE name prefix `Jackery_HL`)
+
+## [1.0.1] - 2026-03-18
+
+### Fixed
+- HACS Validation

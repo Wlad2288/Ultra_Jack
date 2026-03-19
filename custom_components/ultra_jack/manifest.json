@@ -1,7 +1,7 @@
 {
   "domain": "ultra_jack",
   "name": "Ultra Jack",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "documentation": "https://github.com/Wlad2288/ultra_jack",
   "issue_tracker": "https://github.com/Wlad2288/ultra_jack/issues",
   "requirements": ["bleak>=0.21.0", "bleak-retry-connector>=3.0.0"],
