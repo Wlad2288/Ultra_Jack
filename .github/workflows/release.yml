@@ -3,7 +3,8 @@ name: Release
 on:
   release:
     types: [published]
-
+permissions:
+  contents: write
 jobs:
   release:
     runs-on: ubuntu-latest
