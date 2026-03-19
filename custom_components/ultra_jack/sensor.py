@@ -67,7 +67,7 @@ async def async_setup_entry(
             coordinator,
             "energy_charged",
             "Energy Charged",
-            "ac_input_power",
+            "charge",
         )
     )
     entities.append(
@@ -75,7 +75,7 @@ async def async_setup_entry(
             coordinator,
             "energy_discharged",
             "Energy Discharged",
-            "ac_output_power",
+            "discharge",
         )
     )
     async_add_entities(entities)
@@ -156,14 +156,29 @@ class UltraJackEnergySensor(
         if data is None:
             return
 
-        power_w = max(0, data.get(self._power_key, 0) or 0)
-        now = datetime.now(timezone.utc)
+        capacity_wh = data.get("capacity_wh")
+        if capacity_wh is None:
+            return
 
-        if self._last_update is not None:
-            delta_h = (now - self._last_update).total_seconds() / 3600.0
-            self._energy += (power_w / 1000.0) * delta_h
+        if not hasattr(self, "_last_capacity"):
+            self._last_capacity = capacity_wh
+            return
 
-        self._last_update = now
+        delta_wh = capacity_wh - self._last_capacity
+        self._last_capacity = capacity_wh
+
+        # in kWh umrechnen
+        delta_kwh = delta_wh / 1000.0
+
+        if self._power_key == "charge":
+            # nur positive Änderungen zählen
+            if delta_kwh > 0:
+                self._energy += delta_kwh
+
+        elif self._power_key == "discharge":
+            # nur negative Änderungen zählen
+            if delta_kwh < 0:
+                self._energy += abs(delta_kwh)
 
     def _handle_coordinator_update(self) -> None:
         self._update_energy()
