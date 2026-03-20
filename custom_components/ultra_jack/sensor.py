@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
+import logging
 
 from homeassistant.components.sensor import (
     SensorDeviceClass, SensorEntity, SensorEntityDescription, SensorStateClass,
@@ -20,6 +20,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import UltraJackCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -67,6 +69,7 @@ async def async_setup_entry(
     entities: list[SensorEntity] = [UltraJackSensor(coordinator, d) for d in SENSORS]
     entities.append(UltraJackEnergySensor(coordinator, "energy_charged",    "Energy Charged",    "charge"))
     entities.append(UltraJackEnergySensor(coordinator, "energy_discharged", "Energy Discharged", "discharge"))
+    entities.append(UltraJackEnergySensor(coordinator, "energy_loss",       "Energy Loss",       "loss"))
     async_add_entities(entities)
 
 
@@ -99,13 +102,16 @@ class UltraJackEnergySensor(
     SensorEntity,
     RestoreEntity,
 ):
-    """Cumulative energy sensor (charged or discharged) in kWh.
+    """Cumulative energy sensor tracking capacity changes.
 
-    Tracks the running total by accumulating positive/negative changes
-    in available capacity. State is persisted across restarts via RestoreEntity.
+    Three directions:
+      charge    — capacity increases (AC input charging)
+      discharge — capacity decreases AND ac_output_power > 0 (real load)
+      loss      — capacity decreases AND ac_output_power == 0 (standby loss,
+                  self-discharge, electronics overhead)
 
-    On first update after restore, _last_capacity is seeded from current
-    capacity without adding a delta — preventing a false spike on restart.
+    Sanity check: deltas > 200 Wh per 30s cycle are ignored (offline/restart).
+    State is persisted across restarts via RestoreEntity.
     """
 
     _attr_has_entity_name = True
@@ -113,19 +119,21 @@ class UltraJackEnergySensor(
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
+    _MAX_DELTA_WH = 200.0
+
     def __init__(
         self,
         coordinator: UltraJackCoordinator,
         key: str,
         name: str,
-        direction: str,  # "charge" or "discharge"
+        direction: str,  # "charge", "discharge", or "loss"
     ) -> None:
         super().__init__(coordinator)
         self._attr_name = name
-        self._direction  = direction
+        self._direction = direction
         self._attr_unique_id = f"{coordinator.device_address}_{key}"
         self._energy: float = 0.0
-        self._last_capacity: float | None = None  # None = not yet seeded
+        self._last_capacity: float | None = None
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, coordinator.device_address)},
             name=coordinator.device_name,
@@ -136,17 +144,12 @@ class UltraJackEnergySensor(
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-
-        # Restore accumulated energy from previous run
         last_state = await self.async_get_last_state()
         if last_state and last_state.state not in ("unknown", "unavailable"):
             try:
                 self._energy = float(last_state.state)
             except ValueError:
                 self._energy = 0.0
-
-        # Seed _last_capacity from current data if already available,
-        # so the first coordinator update doesn't produce a false delta.
         if self.coordinator.data:
             cap = self.coordinator.data.get("capacity_wh")
             if cap is not None:
@@ -163,15 +166,29 @@ class UltraJackEnergySensor(
             if cap is not None:
                 cap = float(cap)
                 if self._last_capacity is None:
-                    # First update — seed without accumulating
                     self._last_capacity = cap
                 else:
-                    delta_kwh = (cap - self._last_capacity) / 1000.0
+                    delta_wh = cap - self._last_capacity
                     self._last_capacity = cap
 
-                    if self._direction == "charge" and delta_kwh > 0:
-                        self._energy += delta_kwh
-                    elif self._direction == "discharge" and delta_kwh < 0:
-                        self._energy += abs(delta_kwh)
+                    if abs(delta_wh) > self._MAX_DELTA_WH:
+                        _LOGGER.debug(
+                            "Ignoring implausible capacity delta %.1f Wh", delta_wh
+                        )
+                    elif delta_wh > 0 and self._direction == "charge":
+                        # Capacity increased → charging
+                        self._energy += delta_wh / 1000.0
+
+                    elif delta_wh < 0:
+                        ac_out = float(data.get("ac_output_power") or 0)
+                        is_discharging = ac_out > 10  # >10W threshold to avoid noise
+
+                        if self._direction == "discharge" and is_discharging:
+                            # Real load on AC output
+                            self._energy += abs(delta_wh) / 1000.0
+
+                        elif self._direction == "loss" and not is_discharging:
+                            # No AC output → standby loss / self-discharge
+                            self._energy += abs(delta_wh) / 1000.0
 
         self.async_write_ha_state()

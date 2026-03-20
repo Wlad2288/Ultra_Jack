@@ -33,3 +33,21 @@ All notable changes to this project will be documented in this file.
   was not properly seeded from restored state. The sensor now seeds
   `_last_capacity` from current coordinator data during initialisation and
   accumulates only real changes from that point forward.
+
+## [1.2.0] - 2026-03-20
+
+### Added
+- **Energy Loss sensor** — tracks standby losses and self-discharge separately
+  from real discharge. Capacity decreases while AC output is idle (≤ 10 W) are
+  now counted as losses instead of being attributed to the discharge sensor.
+  This prevents standby consumption from appearing as grid feed-in in the
+  Home Assistant Energy Dashboard.
+
+### Changed
+- **Energy Discharged** now only accumulates when AC output power exceeds 10 W,
+  ensuring only real loads are counted.
+- Energy sensors now ignore capacity deltas larger than 200 Wh per poll cycle
+  to prevent false accumulation after the device was offline or restarted.
+- Energy sensor state is correctly restored after a Home Assistant restart —
+  previously the accumulated value could reset to 0 if the device was
+  unreachable at startup.
