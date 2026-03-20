@@ -51,3 +51,17 @@ All notable changes to this project will be documented in this file.
 - Energy sensor state is correctly restored after a Home Assistant restart —
   previously the accumulated value could reset to 0 if the device was
   unreachable at startup.
+
+## [1.3.0] - 2026-03-20
+
+### Added
+- **Status select** — dropdown to set device status (`Normal` / `Standby`)
+- **Operating mode select** — dropdown to set operating mode (`Backup` / `Self-consumption` / `Battery priority` / `Time-based`)
+- **Status sensor** — reads current status from device (`23133185`)
+- **Operating mode sensor** — reads current operating mode from device (`23132161`)
+- Unknown values are displayed as their raw code (e.g. `"6"`) for future identification
+
+### Changed
+- All entity names are now in English
+- `23133185` added to polled meter IDs so the status sensor is populated correctly
+- `data_set` commands now perform a `device_get` handshake before writing, matching the official app behaviour

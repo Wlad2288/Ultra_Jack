@@ -18,20 +18,43 @@ CMD_DEVICE_GET = "device_get"
 CMD_DATA_GET   = "data_get"
 CMD_DATA_SET   = "data_set"
 
-# Confirmed meter IDs from raw data analysis
-# 16934913: AC power flow W (negative = grid input, positive = grid output)
-# 21548033: SOC × 10  (480 = 48.0%)
-# 21549057: Available capacity Wh (985 = 985 Wh)
+# Meter IDs
+METER_AC_POWER    = 16934913
+METER_SOC         = 21548033
+METER_CAPACITY_WH = 21549057
+METER_STATUS      = 23133185  # Standby control → Status sensor
+METER_MODE        = 23132161  # Operating mode  → Mode sensor
 
-METER_AC_POWER    = 16934913   # AC power W (signed: - = input, + = output)
-METER_SOC         = 21548033   # SOC × 10
-METER_CAPACITY_WH = 21549057   # Available capacity Wh
-
-# All 18 meter IDs (must be sent in this exact order)
 ALL_METER_IDS = [
     "23132161", "21545985", "21534721", "21535745",
     "16932865", "16933889", "16937985", "21541889",
     "16935937", "16934913", "21547009", "16930817",
     "16936961", "21548033", "21549057", "21542913",
-    "21556225", "21552129",
+    "21556225", "21552129", "23133185",
 ]
+
+# Status labels (23133185)
+# Unknown values are shown as their raw code, e.g. "3"
+STATUS_LABELS = {
+    "1": "Standby",
+    "2": "Normal",
+}
+
+# Mode labels (23132161)
+# Unknown values are shown as their raw code, e.g. "6"
+MODE_LABELS = {
+    "1": "Backup",
+    "2": "Self-consumption",
+    "3": "Battery priority",
+    "4": "Time-based",
+    "5": "Standby",
+}
+
+# Select options (writable modes)
+MODE_OPTIONS = {
+    "Backup":            "1",
+    "Self-consumption":  "2",
+    "Battery priority":  "3",
+    "Time-based":        "4",
+}
+MODE_OPTIONS_INV = {v: k for k, v in MODE_OPTIONS.items()}
