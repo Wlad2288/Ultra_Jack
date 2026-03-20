@@ -1,4 +1,4 @@
-"""Button platform for Ultra Jack — Status control."""
+"""Button platform for Ultra Jack — Awake."""
 from __future__ import annotations
 
 from homeassistant.components.button import ButtonEntity
@@ -10,30 +10,22 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN
 from .coordinator import UltraJackCoordinator
 
-STATUS_KEY = "23133185"
-
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: UltraJackCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([
-        UltraJackButton(coordinator, "status_normal",  "Status Normal",  STATUS_KEY, "2"),
-        UltraJackButton(coordinator, "status_standby", "Status Standby", STATUS_KEY, "1"),
-    ])
+    async_add_entities([UltraJackAwakeButton(coordinator)])
 
 
-class UltraJackButton(ButtonEntity):
+class UltraJackAwakeButton(ButtonEntity):
     _attr_has_entity_name = True
+    _attr_name = "Awake"
 
-    def __init__(self, coordinator: UltraJackCoordinator,
-                 key: str, name: str, cmd_key: str, cmd_value: str) -> None:
-        self._coordinator  = coordinator
-        self._cmd_key      = cmd_key
-        self._cmd_value    = cmd_value
-        self._attr_name       = name
-        self._attr_unique_id  = f"{coordinator.device_address}_{key}"
+    def __init__(self, coordinator: UltraJackCoordinator) -> None:
+        self._coordinator = coordinator
+        self._attr_unique_id   = f"{coordinator.device_address}_awake"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, coordinator.device_address)},
             name=coordinator.device_name,
@@ -43,4 +35,4 @@ class UltraJackButton(ButtonEntity):
         )
 
     async def async_press(self) -> None:
-        await self._coordinator.async_send_command(self._cmd_key, self._cmd_value)
+        await self._coordinator.async_send_command("23133185", "2")

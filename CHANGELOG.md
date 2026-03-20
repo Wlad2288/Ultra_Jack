@@ -65,3 +65,12 @@ All notable changes to this project will be documented in this file.
 - All entity names are now in English
 - `23133185` added to polled meter IDs so the status sensor is populated correctly
 - `data_set` commands now perform a `device_get` handshake before writing, matching the official app behaviour
+
+## [1.3.1] - 2026-03-20
+
+### Added
+- **Status sensor** — shows `Active` or `Auto standby` based on meter `21552129`
+- **Awake button** — wakes the device from auto standby (`23133185=2`)
+
+### Removed
+- Status dropdown — the Operating mode sensor already reflects standby state

@@ -22,8 +22,8 @@ CMD_DATA_SET   = "data_set"
 METER_AC_POWER    = 16934913
 METER_SOC         = 21548033
 METER_CAPACITY_WH = 21549057
-METER_STATUS      = 23133185  # Standby control → Status sensor
 METER_MODE        = 23132161  # Operating mode  → Mode sensor
+METER_SLEEP       = 21552129  # Sleep state: 0=active, 5=auto standby
 
 ALL_METER_IDS = [
     "23132161", "21545985", "21534721", "21535745",
@@ -33,13 +33,6 @@ ALL_METER_IDS = [
     "21556225", "21552129", "23133185",
 ]
 
-# Status labels (23133185)
-# Unknown values are shown as their raw code, e.g. "3"
-STATUS_LABELS = {
-    "1": "Standby",
-    "2": "Normal",
-}
-
 # Mode labels (23132161)
 # Unknown values are shown as their raw code, e.g. "6"
 MODE_LABELS = {
@@ -48,6 +41,12 @@ MODE_LABELS = {
     "3": "Battery priority",
     "4": "Time-based",
     "5": "Standby",
+}
+
+# Sleep state labels (21552129)
+SLEEP_LABELS = {
+    "0": "Active",
+    "5": "Auto standby",
 }
 
 # Select options (writable modes)
