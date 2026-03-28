@@ -74,3 +74,12 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 - Status dropdown — the Operating mode sensor already reflects standby state
+
+## [1.4.0] - 2026-03-29
+
+### Added
+- DC input power sensor (meter 16932865) — shows current PV/DC charging power in watts
+
+### Fixed  
+- Connection timing for slower devices: client now waits for device_get 
+  response before sending data_get instead of fixed 150ms delay
