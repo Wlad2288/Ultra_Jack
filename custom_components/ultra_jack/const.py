@@ -20,6 +20,7 @@ CMD_DATA_SET   = "data_set"
 
 # Meter IDs
 METER_AC_POWER    = 16934913
+METER_DC_POWER    = 16932865  # DC/PV input power W
 METER_SOC         = 21548033
 METER_CAPACITY_WH = 21549057
 METER_MODE        = 23132161  # Operating mode  → Mode sensor

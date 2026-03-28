@@ -17,7 +17,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import (
     DOMAIN, CONF_DEVICE_ADDRESS, CONF_DEVICE_NAME, CONF_DEVICE_SN,
     DEFAULT_UPDATE_INTERVAL, ALL_METER_IDS,
-    METER_AC_POWER, METER_SOC, METER_CAPACITY_WH, METER_MODE, METER_SLEEP,
+    METER_AC_POWER, METER_DC_POWER, METER_SOC, METER_CAPACITY_WH,
+    METER_MODE, METER_SLEEP,
     MODE_LABELS, SLEEP_LABELS,
     CHAR_WRITE_UUID,
 )
@@ -47,6 +48,7 @@ def _f(v: Any, d: float = 0.0) -> float:
 
 def _build_sensor_data(meters: dict) -> dict:
     ac_power   = _f(meters.get(METER_AC_POWER, 0))
+    dc_power   = _f(meters.get(METER_DC_POWER, 0))
     soc_raw    = _f(meters.get(METER_SOC, 0))
     cap_wh     = _f(meters.get(METER_CAPACITY_WH, 0))
     mode_raw  = str(meters.get(METER_MODE, ""))
@@ -65,6 +67,7 @@ def _build_sensor_data(meters: dict) -> dict:
         "capacity_wh":     round(cap_wh),
         "ac_input_power":  round(abs(ac_power), 1) if ac_power < 0 else 0.0,
         "ac_output_power": round(ac_power, 1)       if ac_power > 0 else 0.0,
+        "dc_input_power":  round(dc_power, 1)        if dc_power > 0 else 0.0,
         "status":          status,
         "mode":            MODE_LABELS.get(mode_raw, mode_raw) if mode_raw else None,
         "mode_raw":        mode_raw,

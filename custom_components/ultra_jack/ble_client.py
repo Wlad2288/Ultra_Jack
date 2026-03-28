@@ -204,6 +204,9 @@ class UltraJackBleClient:
     def _on_msg(self, msg: dict) -> None:
         cmd = msg.get("cmd", "")
         _LOGGER.debug("Complete message: cmd=%s", cmd)
+        if cmd == CMD_DEVICE_GET:
+            if hasattr(self, "_dg_ev"):
+                self._dg_ev.set()
         if cmd == CMD_DATA_GET:
             info = msg.get("info", {})
             dev_list = info.get("dev_list", [])
@@ -217,9 +220,19 @@ class UltraJackBleClient:
     async def query_data(self, all_meter_ids: list, timeout: float = 12.0) -> Optional[dict]:
         self._ev.clear()
         self._last = None
+        self._dg_ev = asyncio.Event()  # signals device_get response received
 
         _LOGGER.debug("Step 1: device_get")
         await self._write(_build_device_get(self._sn))
+
+        # Wait for device_get response before proceeding — some devices respond
+        # slower than others (e.g. HomePower 2000 vs Explorer 2000 Ultra).
+        # Fall back to a fixed delay if no response within 2s.
+        try:
+            await asyncio.wait_for(self._dg_ev.wait(), 2.0)
+            _LOGGER.debug("device_get response received, proceeding")
+        except asyncio.TimeoutError:
+            _LOGGER.debug("device_get response timeout, proceeding anyway")
         await asyncio.sleep(0.15)
 
         _LOGGER.debug("Step 2: data_get init (2 IDs)")

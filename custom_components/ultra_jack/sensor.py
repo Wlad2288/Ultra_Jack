@@ -62,6 +62,13 @@ SENSORS = (
         state_class=SensorStateClass.MEASUREMENT,
     ),
     UltraJackSensorDescription(
+        key="dc_input_power",
+        name="DC input power",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    UltraJackSensorDescription(
         key="ac_output_power",
         name="AC output power",
         native_unit_of_measurement=UnitOfPower.WATT,
