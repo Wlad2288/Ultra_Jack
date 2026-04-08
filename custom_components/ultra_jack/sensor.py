@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 import logging
+import time
 
 from homeassistant.components.sensor import (
     SensorDeviceClass, SensorEntity, SensorEntityDescription, SensorStateClass,
@@ -62,15 +63,15 @@ SENSORS = (
         state_class=SensorStateClass.MEASUREMENT,
     ),
     UltraJackSensorDescription(
-        key="dc_input_power",
-        name="DC input power",
+        key="ac_output_power",
+        name="AC output power",
         native_unit_of_measurement=UnitOfPower.WATT,
         device_class=SensorDeviceClass.POWER,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     UltraJackSensorDescription(
-        key="ac_output_power",
-        name="AC output power",
+        key="dc_input_power",
+        name="DC input power",
         native_unit_of_measurement=UnitOfPower.WATT,
         device_class=SensorDeviceClass.POWER,
         state_class=SensorStateClass.MEASUREMENT,
@@ -84,9 +85,10 @@ async def async_setup_entry(
 ) -> None:
     coordinator: UltraJackCoordinator = hass.data[DOMAIN][entry.entry_id]
     entities: list[SensorEntity] = [UltraJackSensor(coordinator, d) for d in SENSORS]
-    entities.append(UltraJackEnergySensor(coordinator, "energy_charged",    "Energy Charged",    "charge"))
-    entities.append(UltraJackEnergySensor(coordinator, "energy_discharged", "Energy Discharged", "discharge"))
-    entities.append(UltraJackEnergySensor(coordinator, "energy_loss",       "Energy Loss",       "loss"))
+    entities.append(UltraJackPowerIntegrationSensor(coordinator, "energy_charged",    "Energy charged",    "charge"))
+    entities.append(UltraJackPowerIntegrationSensor(coordinator, "energy_discharged", "Energy discharged", "discharge"))
+    entities.append(UltraJackPowerIntegrationSensor(coordinator, "energy_loss",       "Energy loss",       "loss"))
+    entities.append(UltraJackPowerIntegrationSensor(coordinator, "solar_energy",      "Solar energy",      "solar"))
     async_add_entities(entities)
 
 
@@ -118,24 +120,28 @@ class UltraJackSensor(CoordinatorEntity[UltraJackCoordinator], SensorEntity):
         return self.coordinator.data.get(self.entity_description.key)
 
 
-class UltraJackEnergySensor(
+class UltraJackPowerIntegrationSensor(
     CoordinatorEntity[UltraJackCoordinator],
     SensorEntity,
     RestoreEntity,
 ):
-    """Cumulative energy sensor (kWh).
+    """Cumulative energy sensor (kWh) based on power integration over time.
 
     direction:
-      charge    — capacity increases
-      discharge — capacity decreases AND ac_output_power > 10 W
-      loss      — capacity decreases AND ac_output_power ≤ 10 W (standby/self-discharge)
+      charge    — integrates AC input power + DC input power
+      discharge — integrates AC output power (> 10W threshold)
+      loss      — integrates based on capacity drop with no AC output (standby/self-discharge)
+
+    Using power integration (W × time) instead of capacity deltas gives:
+    - More accurate results (no quantization from 1Wh capacity steps)
+    - Correct DC charging attribution
+    - Proper Energy Dashboard support
     """
 
     _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class  = SensorStateClass.TOTAL_INCREASING
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
-    _MAX_DELTA_WH = 200.0
 
     def __init__(self, coordinator: UltraJackCoordinator,
                  key: str, name: str, direction: str) -> None:
@@ -144,7 +150,9 @@ class UltraJackEnergySensor(
         self._direction       = direction
         self._attr_unique_id  = f"{coordinator.device_address}_{key}"
         self._attr_device_info = _device_info(coordinator)
-        self._energy: float          = 0.0
+        self._energy: float = 0.0
+        self._last_ts: float | None = None
+        # For loss direction: still use capacity delta method
         self._last_capacity: float | None = None
 
     async def async_added_to_hass(self) -> None:
@@ -155,6 +163,8 @@ class UltraJackEnergySensor(
                 self._energy = float(last_state.state)
             except ValueError:
                 self._energy = 0.0
+        # Seed timestamp and capacity
+        self._last_ts = time.monotonic()
         if self.coordinator.data:
             cap = self.coordinator.data.get("capacity_wh")
             if cap is not None:
@@ -166,25 +176,46 @@ class UltraJackEnergySensor(
 
     def _handle_coordinator_update(self) -> None:
         data = self.coordinator.data
-        if data is not None:
-            cap = data.get("capacity_wh")
-            if cap is not None:
-                cap = float(cap)
-                if self._last_capacity is None:
-                    self._last_capacity = cap
-                else:
-                    delta_wh = cap - self._last_capacity
-                    self._last_capacity = cap
+        now = time.monotonic()
 
-                    if abs(delta_wh) > self._MAX_DELTA_WH:
-                        _LOGGER.debug("Ignoring implausible delta %.1f Wh", delta_wh)
-                    elif delta_wh > 0 and self._direction == "charge":
-                        self._energy += delta_wh / 1000.0
-                    elif delta_wh < 0:
-                        ac_out = float(data.get("ac_output_power") or 0)
-                        if self._direction == "discharge" and ac_out > 10:
-                            self._energy += abs(delta_wh) / 1000.0
-                        elif self._direction == "loss" and ac_out <= 10:
-                            self._energy += abs(delta_wh) / 1000.0
+        if data is not None and self._last_ts is not None:
+            elapsed_h = (now - self._last_ts) / 3600.0
 
+            # Sanity check: ignore if elapsed time is too large (> 5 minutes)
+            # This prevents false accumulation after long offline periods
+            if elapsed_h <= 5 / 60:
+
+                ac_in  = float(data.get("ac_input_power")  or 0)
+                dc_in  = float(data.get("dc_input_power")  or 0)
+                ac_out = float(data.get("ac_output_power") or 0)
+
+                if self._direction == "charge":
+                    # Total charging power: AC input + DC input
+                    total_charge_w = ac_in + dc_in
+                    if total_charge_w > 0:
+                        self._energy += (total_charge_w * elapsed_h) / 1000.0
+
+                elif self._direction == "solar":
+                    # DC/PV input only — for Energy Dashboard solar production
+                    if dc_in > 0:
+                        self._energy += (dc_in * elapsed_h) / 1000.0
+
+                elif self._direction == "discharge":
+                    # Only real load on AC output
+                    if ac_out > 10:
+                        self._energy += (ac_out * elapsed_h) / 1000.0
+
+                elif self._direction == "loss":
+                    # Standby losses: capacity drops with no AC output
+                    # Keep capacity delta method for losses (more accurate for slow drain)
+                    cap = data.get("capacity_wh")
+                    if cap is not None:
+                        cap = float(cap)
+                        if self._last_capacity is not None:
+                            delta_wh = cap - self._last_capacity
+                            if -200 < delta_wh < 0 and ac_out <= 10:
+                                self._energy += abs(delta_wh) / 1000.0
+                        self._last_capacity = cap
+
+        self._last_ts = now
         self.async_write_ha_state()
