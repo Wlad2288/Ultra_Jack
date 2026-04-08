@@ -83,3 +83,11 @@ All notable changes to this project will be documented in this file.
 ### Fixed  
 - Connection timing for slower devices: client now waits for device_get 
   response before sending data_get instead of fixed 150ms delay
+
+## [1.5.0] - 2026-04-06
+
+### Added
+- Solar energy sensor — cumulative kWh from DC/PV input power, 
+  for use in the HA Energy Dashboard as solar production source.
+  Relevant for users with solar panels connected directly to the 
+  DC input of the power station.
