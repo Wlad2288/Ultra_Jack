@@ -50,6 +50,7 @@ class UltraJackConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
 
+        _LOGGER.debug("Bluetooth discovery: %s (%s)", name, discovery_info.address)
         self.context["title_placeholders"] = {"name": name}
         self._discovered_devices[discovery_info.address] = {
             CONF_DEVICE_NAME: name,
@@ -79,7 +80,30 @@ class UltraJackConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Discover via HA Bluetooth
         self._discovered_devices = {}
         configured = self._async_current_ids(include_ignore=False)
-        for svc_info in async_discovered_service_info(self.hass, connectable=True):
+        connectable_infos = list(async_discovered_service_info(self.hass, connectable=True))
+        connectable_addrs = {i.address for i in connectable_infos}
+        all_infos = list(async_discovered_service_info(self.hass, connectable=False))
+        _LOGGER.debug(
+            "HA Bluetooth knows %d device(s), %d connectable",
+            len(all_infos), len(connectable_infos),
+        )
+        # Log every Jackery advertisement so users can report what their
+        # device actually broadcasts (name, connectability).
+        for svc_info in all_infos:
+            name = svc_info.name or ""
+            if "jackery" in name.lower():
+                _LOGGER.debug(
+                    "Seen Jackery device: name=%s address=%s connectable=%s rssi=%s",
+                    name, svc_info.address,
+                    svc_info.address in connectable_addrs, svc_info.rssi,
+                )
+                if name.startswith(HL_PREFIX) and svc_info.address not in connectable_addrs:
+                    _LOGGER.debug(
+                        "Skipping %s: only seen by non-connectable scanners "
+                        "(passive adapter or proxy?)", name,
+                    )
+
+        for svc_info in connectable_infos:
             name = svc_info.name or ""
             if not name.startswith(HL_PREFIX) or svc_info.address in configured:
                 continue
@@ -90,6 +114,7 @@ class UltraJackConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
 
         if not self._discovered_devices:
+            _LOGGER.debug("No connectable %s* devices found", HL_PREFIX)
             return self.async_abort(reason="no_devices_found")
 
         device_options = {

@@ -118,3 +118,16 @@ Maintenance release — bug fixes and internal cleanup only, no new entities.
 - Packet framing unified in `ble_client.py` (frames are byte-identical to 1.5.0);
   `data_set` now supports multiple values per command. Removed unused `BleakScanner` code.
 - Device model shown as "HL Series" (also covers HomePower devices).
+
+## [1.6.0] - 2026-11-23
+
+Feature release — tooling to resolve open issues. Includes all fixes from 1.5.1.
+
+### Added
+- **Diagnostics download** (Settings → Devices & Services → Ultra Jack → ⋮ →
+  Download diagnostics) including the raw meter map — helps identify unknown
+  meter IDs such as per-string PV values (#7). Serial number, name and
+  address are redacted.
+- Detailed debug logging in the setup dialog: every Jackery advertisement seen
+  by HA Bluetooth is logged with connectability and RSSI, plus the reason a
+  device was skipped (#8).

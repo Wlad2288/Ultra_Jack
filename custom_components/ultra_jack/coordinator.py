@@ -87,6 +87,9 @@ class UltraJackCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # down each other's connection.
         self._ble_lock = asyncio.Lock()
         self._failed_polls = 0
+        # Last raw meter map (meter id → value), exposed via diagnostics to
+        # help identify unknown meters.
+        self.raw_meters: dict[int, Any] = {}
 
     @property
     def device_name(self) -> str:
@@ -169,6 +172,7 @@ class UltraJackCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(f"Connection error: {err}") from err
 
         self._failed_polls = 0
+        self.raw_meters = meters
         data = _build_sensor_data(meters)
         _LOGGER.debug("Sensor data: %s", data)
         return data
