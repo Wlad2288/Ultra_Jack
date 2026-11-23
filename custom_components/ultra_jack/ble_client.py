@@ -201,17 +201,22 @@ class UltraJackBleClient:
     def is_connected(self) -> bool:
         return self._client is not None and self._client.is_connected
 
-    async def connect_with_client(self, client: BleakClient) -> bool:
+    async def connect_with_client(self, client: BleakClient) -> None:
+        """Attach to an established connection and subscribe to notifications.
+
+        Raises on failure. Transient errors (e.g. GATT error 133 via an ESPHome
+        proxy) are common; the coordinator tolerates them, so they are only
+        logged at debug level here.
+        """
+        self._client = client
+        self._asm    = _Assembler(self._on_msg)
         try:
-            self._client = client
-            self._asm    = _Assembler(self._on_msg)
             await self._client.start_notify(CHAR_NOTIFY_UUID, self._on_raw)
-            _LOGGER.debug("HL client connected to %s", self._sn)
-            return True
-        except Exception as e:
-            _LOGGER.error("connect_with_client failed: %s", e)
+        except Exception as err:
+            _LOGGER.debug("start_notify failed on %s: %s", self._sn, err)
             self._client = None
-            return False
+            raise
+        _LOGGER.debug("HL client connected to %s", self._sn)
 
     async def disconnect(self) -> None:
         if self._asm:

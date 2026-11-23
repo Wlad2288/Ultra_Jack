@@ -133,3 +133,12 @@ Feature release — tooling to resolve open issues. Includes all fixes from 1.5.
   device was skipped (#8).
 - Status sensor now shows **Busy** for state `1` (seen briefly while switching
   mode / starting to charge) instead of the raw code.
+
+### Changed
+- **Faster Home Assistant startup:** setup no longer waits for the first BLE
+  poll (which could take up to a minute via a Bluetooth proxy). Entities start
+  as unavailable and fill in once the first poll succeeds. If the device is
+  switched off at startup, the integration now loads normally and keeps polling
+  instead of going into a setup retry loop.
+- Transient connection errors (e.g. GATT error 133 via ESPHome proxies) are no
+  longer logged as `ERROR`; they are tolerated and only logged at debug level.

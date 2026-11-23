@@ -87,6 +87,9 @@ class UltraJackCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # down each other's connection.
         self._ble_lock = asyncio.Lock()
         self._failed_polls = 0
+        # The first poll runs in the background after setup; until it succeeds
+        # entities should show as unavailable rather than "unknown".
+        self.last_update_success = False
         # Last raw meter map (meter id → value), exposed via diagnostics to
         # help identify unknown meters.
         self.raw_meters: dict[int, Any] = {}
@@ -126,12 +129,16 @@ class UltraJackCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ConnectionError(f"Device {self._device_name} not found via HA Bluetooth")
         client = UltraJackBleClient(self._device_sn)
         bleak_client = await establish_connection(BleakClient, ble_device, self._device_name)
-        if not await client.connect_with_client(bleak_client):
+        try:
+            await client.connect_with_client(bleak_client)
+        except Exception as err:
             try:
                 await bleak_client.disconnect()
             except Exception:  # noqa: BLE001
                 pass
-            raise ConnectionError(f"Failed to start notifications on {self._device_name}")
+            raise ConnectionError(
+                f"Failed to start notifications on {self._device_name}: {err}"
+            ) from err
         self._client = client
         return client
 
