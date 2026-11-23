@@ -7,7 +7,8 @@ import logging
 import time
 
 from homeassistant.components.sensor import (
-    SensorDeviceClass, SensorEntity, SensorEntityDescription, SensorStateClass,
+    RestoreSensor, SensorDeviceClass, SensorEntity, SensorEntityDescription,
+    SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -15,7 +16,6 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN
 from .coordinator import UltraJackCoordinator
@@ -108,7 +108,7 @@ class UltraJackSensor(UltraJackEntity, SensorEntity):
         return self.coordinator.data.get(self.entity_description.key)
 
 
-class UltraJackPowerIntegrationSensor(UltraJackEntity, SensorEntity, RestoreEntity):
+class UltraJackPowerIntegrationSensor(UltraJackEntity, RestoreSensor):
     """Cumulative energy sensor (kWh) based on power integration over time.
 
     direction:
@@ -142,12 +142,7 @@ class UltraJackPowerIntegrationSensor(UltraJackEntity, SensorEntity, RestoreEnti
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if last_state and last_state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
-            try:
-                self._energy = float(last_state.state)
-            except ValueError:
-                self._energy = 0.0
+        self._energy = await self._async_restore_energy()
         # Seed timestamp and capacity
         self._last_ts = time.monotonic()
         if self.coordinator.data:
@@ -159,6 +154,28 @@ class UltraJackPowerIntegrationSensor(UltraJackEntity, SensorEntity, RestoreEnti
     @property
     def native_value(self) -> float:
         return round(self._energy, 4)
+
+    async def _async_restore_energy(self) -> float:
+        """Restore the accumulated energy after a restart or reload.
+
+        RestoreSensor stores the native value separately from the state, so the
+        counter survives restarts while the entity is unavailable (e.g. device
+        switched off). Previously the stored state was "unavailable" in that
+        case and the counter silently restarted at 0.
+        Falls back to the plain last state for data stored by versions <= 1.5.0.
+        """
+        candidates = []
+        if (last_data := await self.async_get_last_sensor_data()) is not None:
+            candidates.append(last_data.native_value)
+        if (last_state := await self.async_get_last_state()) is not None:
+            if last_state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+                candidates.append(last_state.state)
+        for value in candidates:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        return 0.0
 
     def _handle_coordinator_update(self) -> None:
         data = self.coordinator.data

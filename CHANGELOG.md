@@ -97,6 +97,10 @@ All notable changes to this project will be documented in this file.
 Maintenance release — bug fixes and internal cleanup only, no new entities.
 
 ### Fixed
+- Energy sensors (charged / discharged / loss / solar) no longer reset to 0
+  when Home Assistant restarts or the integration reloads while the device is
+  unavailable (e.g. switched off). The counter value is now stored separately
+  from the entity state (`RestoreSensor`).
 - Energy sensors no longer keep accumulating stale power values while the
   device is unreachable (cached data was integrated again on every poll).
 - Polling and commands are now serialised with a lock — a button press or
