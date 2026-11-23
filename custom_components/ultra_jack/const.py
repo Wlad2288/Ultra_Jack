@@ -50,6 +50,7 @@ MODE_LABELS = {
 # Sleep state labels (21552129)
 SLEEP_LABELS = {
     "0": "Active",
+    "1": "Busy",          # seen briefly while switching mode / starting to charge
     "5": "Auto standby",
 }
 

@@ -131,3 +131,5 @@ Feature release — tooling to resolve open issues. Includes all fixes from 1.5.
 - Detailed debug logging in the setup dialog: every Jackery advertisement seen
   by HA Bluetooth is logged with connectability and RSSI, plus the reason a
   device was skipped (#8).
+- Status sensor now shows **Busy** for state `1` (seen briefly while switching
+  mode / starting to charge) instead of the raw code.
