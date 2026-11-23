@@ -1,8 +1,7 @@
 """DataUpdateCoordinator for Ultra Jack."""
 
-import json
+import asyncio
 import logging
-import random
 import time
 from datetime import timedelta
 from typing import Any, Optional
@@ -12,15 +11,16 @@ from bleak_retry_connector import establish_connection
 
 from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
     DOMAIN, CONF_DEVICE_ADDRESS, CONF_DEVICE_NAME, CONF_DEVICE_SN,
-    DEFAULT_UPDATE_INTERVAL, ALL_METER_IDS,
+    DEFAULT_UPDATE_INTERVAL, ALL_METER_IDS, MAX_FAILED_POLLS,
     METER_AC_POWER, METER_DC_POWER, METER_SOC, METER_CAPACITY_WH,
     METER_MODE, METER_SLEEP,
     MODE_LABELS, SLEEP_LABELS,
-    CHAR_WRITE_UUID,
 )
 from .ble_client import UltraJackBleClient
 
@@ -54,13 +54,7 @@ def _build_sensor_data(meters: dict) -> dict:
     mode_raw  = str(meters.get(METER_MODE, ""))
     sleep_raw = str(meters.get(METER_SLEEP, ""))
 
-    # Combined status: auto standby overrides mode display
-    if sleep_raw == "5":
-        status = "Auto standby"
-    elif sleep_raw:
-        status = SLEEP_LABELS.get(sleep_raw, sleep_raw)
-    else:
-        status = None
+    status = SLEEP_LABELS.get(sleep_raw, sleep_raw) if sleep_raw else None
 
     return {
         "soc":             round(soc_raw / 10.0, 1),
@@ -71,18 +65,10 @@ def _build_sensor_data(meters: dict) -> dict:
         "status":          status,
         "mode":            MODE_LABELS.get(mode_raw, mode_raw) if mode_raw else None,
         "mode_raw":        mode_raw,
+        # Monotonic timestamp of this reading. Energy sensors use it to avoid
+        # integrating the same (stale) power value more than once.
+        "updated_at":      time.monotonic(),
     }
-
-
-def _build_data_set(device_sn: str, dev_sn: str, key: str, value: str) -> bytes:
-    payload = json.dumps({
-        "cmd": "data_set",
-        "gw_sn": device_sn,
-        "timestamp": str(int(time.time() * 1000)),
-        "info": {"dev_list": [{"dev_sn": dev_sn, "meter_list": [[key, value]]}]},
-        "token": str(random.randint(100000000, 999999999)),
-    }, separators=(",", ":")).encode()
-    return bytes([0x4D, 0x00, 0x01, len(payload) & 0xFF]) + payload
 
 
 class UltraJackCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -96,8 +82,11 @@ class UltraJackCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._address     = config_data[CONF_DEVICE_ADDRESS]
         self._device_name = config_data.get(CONF_DEVICE_NAME, "Ultra Jack")
         self._device_sn   = config_data.get(CONF_DEVICE_SN, "")
-        self._dev_sn      = f"ems_{self._device_sn}"
         self._client: Optional[UltraJackBleClient] = None
+        # Serialises BLE access: polling and commands must never share/tear
+        # down each other's connection.
+        self._ble_lock = asyncio.Lock()
+        self._failed_polls = 0
 
     @property
     def device_name(self) -> str:
@@ -111,80 +100,98 @@ class UltraJackCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def device_sn(self) -> str:
         return self._device_sn
 
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._address)},
+            name=self._device_name,
+            manufacturer="Jackery",
+            model="HL Series",
+            serial_number=self._device_sn,
+        )
+
     async def _disconnect(self) -> None:
         if self._client:
             await self._client.disconnect()
             self._client = None
 
-    async def _connect(self) -> None:
+    async def _connect(self) -> UltraJackBleClient:
         ble_device = async_ble_device_from_address(
             self.hass, self._address, connectable=True
         )
         if not ble_device:
-            raise UpdateFailed(f"Device {self._device_name} not found via HA Bluetooth")
-        self._client = UltraJackBleClient(self._device_sn)
+            raise ConnectionError(f"Device {self._device_name} not found via HA Bluetooth")
+        client = UltraJackBleClient(self._device_sn)
         bleak_client = await establish_connection(BleakClient, ble_device, self._device_name)
-        if not await self._client.connect_with_client(bleak_client):
-            self._client = None
-            raise UpdateFailed(f"Failed to connect to {self._device_name}")
+        if not await client.connect_with_client(bleak_client):
+            try:
+                await bleak_client.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
+            raise ConnectionError(f"Failed to start notifications on {self._device_name}")
+        self._client = client
+        return client
 
-    async def _async_update_data(self) -> dict[str, Any]:
-        await self._disconnect()
-        try:
-            await self._connect()
-        except Exception as err:
-            raise UpdateFailed(f"Connection error: {err}") from err
-
-        try:
-            response = await self._client.query_data(
-                [str(m) for m in ALL_METER_IDS], timeout=12.0
-            )
-        finally:
+    async def _poll(self) -> dict[int, Any]:
+        async with self._ble_lock:
             await self._disconnect()
+            try:
+                client = await self._connect()
+                response = await client.query_data(
+                    [str(m) for m in ALL_METER_IDS], timeout=12.0
+                )
+            finally:
+                await self._disconnect()
 
         if response is None:
-            if self.data:
-                return self.data
             raise UpdateFailed("No response from device")
-
-        info   = response.get("info", {})
-        meters = _parse_meters(info)
+        meters = _parse_meters(response.get("info", {}))
         if not meters:
-            if self.data:
-                return self.data
             raise UpdateFailed("No meter readings in response")
+        return meters
 
+    async def _async_update_data(self) -> dict[str, Any]:
+        try:
+            meters = await self._poll()
+        except Exception as err:  # noqa: BLE001
+            self._failed_polls += 1
+            # Tolerate a few transient BLE failures by keeping the last values
+            # (with their original timestamp, so energy sensors don't integrate
+            # stale power). Beyond that, mark entities unavailable.
+            if self.data and self._failed_polls < MAX_FAILED_POLLS:
+                _LOGGER.debug(
+                    "Poll failed (%d/%d), keeping last values: %s",
+                    self._failed_polls, MAX_FAILED_POLLS, err,
+                )
+                return self.data
+            if isinstance(err, UpdateFailed):
+                raise
+            raise UpdateFailed(f"Connection error: {err}") from err
+
+        self._failed_polls = 0
         data = _build_sensor_data(meters)
         _LOGGER.debug("Sensor data: %s", data)
         return data
 
     async def async_send_command(self, key: str, value: str) -> None:
-        """Send a data_set command then refresh.
+        """Send a single data_set command, then refresh."""
+        await self.async_send_values([[key, value]])
 
-        The device requires a device_get handshake before accepting data_set.
-        """
-        import asyncio
-        from .ble_client import _build_device_get
-
-        await self._disconnect()
-        try:
-            await self._connect()
-        except Exception as err:
-            raise RuntimeError(f"Connection error: {err}") from err
-        try:
-            # Step 1: device_get handshake (required before data_set)
-            dg_packet = _build_device_get(self._device_sn)
-            await self._client._client.write_gatt_char(CHAR_WRITE_UUID, dg_packet, response=False)
-            await asyncio.sleep(0.5)
-
-            # Step 2: data_set
-            packet = _build_data_set(self._device_sn, self._dev_sn, key, value)
-            _LOGGER.debug("data_set key=%s value=%s", key, value)
-            await self._client._client.write_gatt_char(CHAR_WRITE_UUID, packet, response=False)
-            await asyncio.sleep(0.5)
-        finally:
+    async def async_send_values(self, pairs: list[list[str]]) -> None:
+        """Send one or more [meter_id, value] pairs via data_set, then refresh."""
+        async with self._ble_lock:
             await self._disconnect()
+            try:
+                client = await self._connect()
+                await client.set_values(pairs)
+            except Exception as err:  # noqa: BLE001
+                raise HomeAssistantError(
+                    f"Failed to send command to {self._device_name}: {err}"
+                ) from err
+            finally:
+                await self._disconnect()
         await self.async_request_refresh()
 
     async def async_shutdown(self) -> None:
+        await super().async_shutdown()
         await self._disconnect()

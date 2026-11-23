@@ -19,7 +19,6 @@ from .const import (
     CONF_DEVICE_SN,
     HL_PREFIX,
 )
-from .ble_client import scan_hl_devices
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,14 +78,16 @@ class UltraJackConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Discover via HA Bluetooth
         self._discovered_devices = {}
+        configured = self._async_current_ids(include_ignore=False)
         for svc_info in async_discovered_service_info(self.hass, connectable=True):
             name = svc_info.name or ""
-            if name.startswith(HL_PREFIX):
-                self._discovered_devices[svc_info.address] = {
-                    CONF_DEVICE_NAME: name,
-                    CONF_DEVICE_ADDRESS: svc_info.address,
-                    CONF_DEVICE_SN: _extract_sn_from_name(name),
-                }
+            if not name.startswith(HL_PREFIX) or svc_info.address in configured:
+                continue
+            self._discovered_devices[svc_info.address] = {
+                CONF_DEVICE_NAME: name,
+                CONF_DEVICE_ADDRESS: svc_info.address,
+                CONF_DEVICE_SN: _extract_sn_from_name(name),
+            }
 
         if not self._discovered_devices:
             return self.async_abort(reason="no_devices_found")
@@ -108,6 +109,7 @@ class UltraJackConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Confirm discovered device."""
+        self._set_confirm_only()
         if user_input is not None:
             address = list(self._discovered_devices.keys())[0]
             device_info = self._discovered_devices[address]

@@ -7,6 +7,9 @@ CONF_DEVICE_NAME    = "device_name"
 CONF_DEVICE_SN      = "device_sn"
 
 DEFAULT_UPDATE_INTERVAL = 30
+# Consecutive failed polls tolerated (keeping last values) before entities
+# become unavailable.
+MAX_FAILED_POLLS = 5
 
 SERVICE_UUID     = "0000ffff-0000-1000-8000-00805f9b34fb"
 CHAR_WRITE_UUID  = "0000ff01-0000-1000-8000-00805f9b34fb"

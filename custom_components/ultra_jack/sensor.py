@@ -10,15 +10,16 @@ from homeassistant.components.sensor import (
     SensorDeviceClass, SensorEntity, SensorEntityDescription, SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfPower
+from homeassistant.const import (
+    PERCENTAGE, STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfEnergy, UnitOfPower,
+)
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import UltraJackCoordinator
+from .entity import UltraJackEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -92,26 +93,13 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-def _device_info(coordinator: UltraJackCoordinator) -> DeviceInfo:
-    return DeviceInfo(
-        identifiers={(DOMAIN, coordinator.device_address)},
-        name=coordinator.device_name,
-        manufacturer="Jackery",
-        model="Explorer 2000 Ultra (HL Series)",
-        serial_number=coordinator.device_sn,
-    )
-
-
-class UltraJackSensor(CoordinatorEntity[UltraJackCoordinator], SensorEntity):
+class UltraJackSensor(UltraJackEntity, SensorEntity):
     entity_description: UltraJackSensorDescription
-    _attr_has_entity_name = True
 
     def __init__(self, coordinator: UltraJackCoordinator,
                  description: UltraJackSensorDescription) -> None:
-        super().__init__(coordinator)
-        self.entity_description    = description
-        self._attr_unique_id       = f"{coordinator.device_address}_{description.key}"
-        self._attr_device_info     = _device_info(coordinator)
+        super().__init__(coordinator, description.key)
+        self.entity_description = description
 
     @property
     def native_value(self) -> Any:
@@ -120,15 +108,12 @@ class UltraJackSensor(CoordinatorEntity[UltraJackCoordinator], SensorEntity):
         return self.coordinator.data.get(self.entity_description.key)
 
 
-class UltraJackPowerIntegrationSensor(
-    CoordinatorEntity[UltraJackCoordinator],
-    SensorEntity,
-    RestoreEntity,
-):
+class UltraJackPowerIntegrationSensor(UltraJackEntity, SensorEntity, RestoreEntity):
     """Cumulative energy sensor (kWh) based on power integration over time.
 
     direction:
       charge    — integrates AC input power + DC input power
+      solar     — integrates DC/PV input power
       discharge — integrates AC output power (> 10W threshold)
       loss      — integrates based on capacity drop with no AC output (standby/self-discharge)
 
@@ -138,27 +123,27 @@ class UltraJackPowerIntegrationSensor(
     - Proper Energy Dashboard support
     """
 
-    _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class  = SensorStateClass.TOTAL_INCREASING
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
     def __init__(self, coordinator: UltraJackCoordinator,
                  key: str, name: str, direction: str) -> None:
-        super().__init__(coordinator)
-        self._attr_name       = name
-        self._direction       = direction
-        self._attr_unique_id  = f"{coordinator.device_address}_{key}"
-        self._attr_device_info = _device_info(coordinator)
+        super().__init__(coordinator, key)
+        self._attr_name  = name
+        self._direction  = direction
         self._energy: float = 0.0
         self._last_ts: float | None = None
+        # updated_at of the last reading that was integrated. Prevents
+        # re-integrating cached data while the device is unreachable.
+        self._last_reading: float | None = None
         # For loss direction: still use capacity delta method
         self._last_capacity: float | None = None
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state and last_state.state not in ("unknown", "unavailable"):
+        if last_state and last_state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
             try:
                 self._energy = float(last_state.state)
             except ValueError:
@@ -166,6 +151,7 @@ class UltraJackPowerIntegrationSensor(
         # Seed timestamp and capacity
         self._last_ts = time.monotonic()
         if self.coordinator.data:
+            self._last_reading = self.coordinator.data.get("updated_at")
             cap = self.coordinator.data.get("capacity_wh")
             if cap is not None:
                 self._last_capacity = float(cap)
@@ -176,9 +162,16 @@ class UltraJackPowerIntegrationSensor(
 
     def _handle_coordinator_update(self) -> None:
         data = self.coordinator.data
+        if data is None or data.get("updated_at") == self._last_reading:
+            # No new reading (poll failed and cached values were kept):
+            # don't integrate the same power value again, but still publish
+            # availability changes.
+            self.async_write_ha_state()
+            return
+        self._last_reading = data.get("updated_at")
         now = time.monotonic()
 
-        if data is not None and self._last_ts is not None:
+        if self._last_ts is not None:
             elapsed_h = (now - self._last_ts) / 3600.0
 
             # Sanity check: ignore if elapsed time is too large (> 5 minutes)
@@ -216,6 +209,10 @@ class UltraJackPowerIntegrationSensor(
                             if -200 < delta_wh < 0 and ac_out <= 10:
                                 self._energy += abs(delta_wh) / 1000.0
                         self._last_capacity = cap
+
+            elif data.get("capacity_wh") is not None:
+                # Long gap: re-seed so the next delta isn't counted as loss.
+                self._last_capacity = float(data["capacity_wh"])
 
         self._last_ts = now
         self.async_write_ha_state()

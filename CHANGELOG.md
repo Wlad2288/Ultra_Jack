@@ -91,3 +91,26 @@ All notable changes to this project will be documented in this file.
   for use in the HA Energy Dashboard as solar production source.
   Relevant for users with solar panels connected directly to the 
   DC input of the power station.
+
+## [1.5.1] - 2026-11-23
+
+Maintenance release — bug fixes and internal cleanup only, no new entities.
+
+### Fixed
+- Energy sensors no longer keep accumulating stale power values while the
+  device is unreachable (cached data was integrated again on every poll).
+- Polling and commands are now serialised with a lock — a button press or
+  mode change during a poll could tear down the other connection.
+- Coordinator shutdown now calls the base implementation (refresh timer was
+  not cancelled) and is no longer run twice on unload.
+- Failed commands now raise a visible error in the UI instead of a bare `RuntimeError`.
+- Loss sensor re-seeds capacity after long gaps instead of counting the delta.
+
+### Changed
+- Transient BLE failures: last values are kept for up to 5 consecutive failed
+  polls, after which entities become unavailable (previously cached values
+  were shown indefinitely, while a single connection error made everything unavailable).
+- Already configured devices are hidden in the manual setup dialog.
+- Packet framing unified in `ble_client.py` (frames are byte-identical to 1.5.0);
+  `data_set` now supports multiple values per command. Removed unused `BleakScanner` code.
+- Device model shown as "HL Series" (also covers HomePower devices).
