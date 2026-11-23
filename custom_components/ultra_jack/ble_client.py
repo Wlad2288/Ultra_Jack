@@ -15,10 +15,9 @@ import random
 import time
 from typing import Optional, Callable, Dict, Any
 
-from bleak import BleakClient, BleakScanner
-from bleak.backends.device import BLEDevice
+from bleak import BleakClient
 
-from .const import CHAR_WRITE_UUID, CHAR_NOTIFY_UUID, HL_PREFIX, CMD_DEVICE_GET, CMD_DATA_GET
+from .const import CHAR_WRITE_UUID, CHAR_NOTIFY_UUID, CMD_DEVICE_GET, CMD_DATA_GET, CMD_DATA_SET
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,32 +36,63 @@ def _token() -> str:
     return str(random.randint(100000000, 2000000000))
 
 
-def _build_device_get(device_sn: str) -> bytes:
+MAX_FRAGMENT     = 250   # payload bytes in the first fragment of a split message
+MAX_SINGLE       = 255   # max payload in a single frame (1-byte length field)
+
+
+def _frame(payload: bytes, seq: int = 0) -> list[bytes]:
+    """Wrap a JSON payload into one or two HL frames.
+
+    Single frame:  [0x4D, 0x00, seq, len] + payload
+    Split message: [0x4D, 0x10, seq, 0xFC, len_lo, len_hi] + payload[:250]
+                   [0x4D, 0x00, seq+1, len(rest)]          + payload[250:]
+    """
+    n = len(payload)
+    if n <= MAX_FRAGMENT:
+        return [bytes([HL_MARKER, 0x00, seq & 0xFF, n]) + payload]
+    part1, part2 = payload[:MAX_FRAGMENT], payload[MAX_FRAGMENT:]
+    if len(part2) > MAX_SINGLE:
+        raise ValueError(f"Payload too large for HL framing ({n} bytes)")
+    pkt1 = bytes([HL_MARKER, 0x10, seq & 0xFF, 0xFC, n & 0xFF, (n >> 8) & 0xFF]) + part1
+    pkt2 = bytes([HL_MARKER, 0x00, (seq + 1) & 0xFF, len(part2)]) + part2
+    return [pkt1, pkt2]
+
+
+def _build_device_get(device_sn: str) -> list[bytes]:
     payload = json.dumps(
         {"cmd": CMD_DEVICE_GET, "gw_sn": device_sn, "timestamp": _ts(), "info": {}},
         separators=(",", ":"),
     ).encode()
-    return bytes([HL_MARKER, 0x00, 0x00, len(payload) & 0xFF]) + payload
+    return _frame(payload, seq=0)
 
 
-def _build_data_get(device_sn: str, meter_ids: list, seq: int = 0) -> list:
-    meter_list_json = json.dumps(meter_ids, separators=(",", ":"))
-    payload_str = (
-        '{"cmd":"data_get"'
-        f',"gw_sn":"{device_sn}"'
-        f',"timestamp":"{_ts()}"'
-        f',"info":{{"dev_list":[{{"dev_sn":"ems_{device_sn}"'
-        f',"meter_list":{meter_list_json}}}]}}'
-        f',"token":"{_token()}"}}'
-    )
-    payload = payload_str.encode()
-    n = len(payload)
-    if n <= 250:
-        return [bytes([HL_MARKER, 0x00, seq & 0xFF, n & 0xFF]) + payload]
-    part1, part2 = payload[:250], payload[250:]
-    pkt1 = bytes([HL_MARKER, 0x10, seq & 0xFF, 0xFC, n & 0xFF, (n >> 8) & 0xFF]) + part1
-    pkt2 = bytes([HL_MARKER, 0x00, (seq + 1) & 0xFF, len(part2) & 0xFF]) + part2
-    return [pkt1, pkt2]
+def _build_data_get(device_sn: str, meter_ids: list, seq: int = 0) -> list[bytes]:
+    payload = json.dumps(
+        {
+            "cmd": CMD_DATA_GET,
+            "gw_sn": device_sn,
+            "timestamp": _ts(),
+            "info": {"dev_list": [{"dev_sn": f"ems_{device_sn}", "meter_list": meter_ids}]},
+            "token": _token(),
+        },
+        separators=(",", ":"),
+    ).encode()
+    return _frame(payload, seq=seq)
+
+
+def _build_data_set(device_sn: str, pairs: list[list[str]], seq: int = 1) -> list[bytes]:
+    """Build a data_set command. `pairs` is a list of [meter_id, value] strings."""
+    payload = json.dumps(
+        {
+            "cmd": CMD_DATA_SET,
+            "gw_sn": device_sn,
+            "timestamp": _ts(),
+            "info": {"dev_list": [{"dev_sn": f"ems_{device_sn}", "meter_list": pairs}]},
+            "token": _token(),
+        },
+        separators=(",", ":"),
+    ).encode()
+    return _frame(payload, seq=seq)
 
 
 def _extract_json(data: bytes) -> Optional[dict]:
@@ -164,23 +194,29 @@ class UltraJackBleClient:
         self._client: Optional[BleakClient] = None
         self._asm:    Optional[_Assembler]  = None
         self._ev    = asyncio.Event()
+        self._dg_ev = asyncio.Event()  # signals device_get response received
         self._last: Optional[dict] = None
 
     @property
     def is_connected(self) -> bool:
         return self._client is not None and self._client.is_connected
 
-    async def connect_with_client(self, client: BleakClient) -> bool:
+    async def connect_with_client(self, client: BleakClient) -> None:
+        """Attach to an established connection and subscribe to notifications.
+
+        Raises on failure. Transient errors (e.g. GATT error 133 via an ESPHome
+        proxy) are common; the coordinator tolerates them, so they are only
+        logged at debug level here.
+        """
+        self._client = client
+        self._asm    = _Assembler(self._on_msg)
         try:
-            self._client = client
-            self._asm    = _Assembler(self._on_msg)
             await self._client.start_notify(CHAR_NOTIFY_UUID, self._on_raw)
-            _LOGGER.debug("HL client connected to %s", self._sn)
-            return True
-        except Exception as e:
-            _LOGGER.error("connect_with_client failed: %s", e)
+        except Exception as err:
+            _LOGGER.debug("start_notify failed on %s: %s", self._sn, err)
             self._client = None
-            return False
+            raise
+        _LOGGER.debug("HL client connected to %s", self._sn)
 
     async def disconnect(self) -> None:
         if self._asm:
@@ -205,9 +241,8 @@ class UltraJackBleClient:
         cmd = msg.get("cmd", "")
         _LOGGER.debug("Complete message: cmd=%s", cmd)
         if cmd == CMD_DEVICE_GET:
-            if hasattr(self, "_dg_ev"):
-                self._dg_ev.set()
-        if cmd == CMD_DATA_GET:
+            self._dg_ev.set()
+        elif cmd == CMD_DATA_GET:
             info = msg.get("info", {})
             dev_list = info.get("dev_list", [])
             if dev_list:
@@ -217,35 +252,35 @@ class UltraJackBleClient:
                     self._last = msg
                     self._ev.set()
 
+    async def _handshake(self) -> None:
+        """Send device_get and wait (max 2s) for the response.
+
+        Some devices respond slower than others (e.g. HomePower 2000 vs
+        Explorer 2000 Ultra), so we wait for the actual reply instead of
+        relying on a fixed delay.
+        """
+        self._dg_ev.clear()
+        _LOGGER.debug("Handshake: device_get")
+        await self._write_all(_build_device_get(self._sn))
+        try:
+            await asyncio.wait_for(self._dg_ev.wait(), 2.0)
+            _LOGGER.debug("device_get response received")
+        except asyncio.TimeoutError:
+            _LOGGER.debug("device_get response timeout, proceeding anyway")
+
     async def query_data(self, all_meter_ids: list, timeout: float = 12.0) -> Optional[dict]:
         self._ev.clear()
         self._last = None
-        self._dg_ev = asyncio.Event()  # signals device_get response received
 
-        _LOGGER.debug("Step 1: device_get")
-        await self._write(_build_device_get(self._sn))
-
-        # Wait for device_get response before proceeding — some devices respond
-        # slower than others (e.g. HomePower 2000 vs Explorer 2000 Ultra).
-        # Fall back to a fixed delay if no response within 2s.
-        try:
-            await asyncio.wait_for(self._dg_ev.wait(), 2.0)
-            _LOGGER.debug("device_get response received, proceeding")
-        except asyncio.TimeoutError:
-            _LOGGER.debug("device_get response timeout, proceeding anyway")
+        await self._handshake()
         await asyncio.sleep(0.15)
 
-        _LOGGER.debug("Step 2: data_get init (2 IDs)")
-        for p in _build_data_get(self._sn, INIT_METER_IDS, seq=1):
-            await self._write(p)
+        _LOGGER.debug("data_get init (%d IDs)", len(INIT_METER_IDS))
+        await self._write_all(_build_data_get(self._sn, INIT_METER_IDS, seq=1))
         await asyncio.sleep(0.15)
 
-        _LOGGER.debug("Step 3: data_get full (%d IDs)", len(all_meter_ids))
-        pkts = _build_data_get(self._sn, all_meter_ids, seq=2)
-        for i, p in enumerate(pkts):
-            await self._write(p)
-            if i < len(pkts) - 1:
-                await asyncio.sleep(0.15)
+        _LOGGER.debug("data_get full (%d IDs)", len(all_meter_ids))
+        await self._write_all(_build_data_get(self._sn, all_meter_ids, seq=2))
 
         try:
             await asyncio.wait_for(self._ev.wait(), timeout)
@@ -254,21 +289,25 @@ class UltraJackBleClient:
             _LOGGER.debug("query_data timeout after %.0fs", timeout)
             return None
 
+    async def set_values(self, pairs: list[list[str]]) -> None:
+        """Write one or more [meter_id, value] pairs via data_set.
+
+        The device requires a device_get handshake before accepting data_set.
+        """
+        await self._handshake()
+        await asyncio.sleep(0.5)
+        _LOGGER.debug("data_set %s", pairs)
+        await self._write_all(_build_data_set(self._sn, pairs))
+        await asyncio.sleep(0.5)
+
+    async def _write_all(self, packets: list[bytes]) -> None:
+        for i, p in enumerate(packets):
+            if i:
+                await asyncio.sleep(0.15)
+            await self._write(p)
+
     async def _write(self, data: bytes) -> None:
         if not self._client or not self._client.is_connected:
             raise RuntimeError("Not connected")
         _LOGGER.debug("WRITE %d bytes: %s...", len(data), data[:30].hex())
         await self._client.write_gatt_char(CHAR_WRITE_UUID, data, response=False)
-
-
-async def scan_hl_devices(timeout: float = 10.0) -> list:
-    found = {}
-    def cb(dev: BLEDevice, adv):
-        name = dev.name or ""
-        if name.startswith(HL_PREFIX) and dev.address not in found:
-            found[dev.address] = dev
-    s = BleakScanner(detection_callback=cb)
-    await s.start()
-    await asyncio.sleep(timeout)
-    await s.stop()
-    return list(found.values())

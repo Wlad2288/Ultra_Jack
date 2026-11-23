@@ -91,3 +91,54 @@ All notable changes to this project will be documented in this file.
   for use in the HA Energy Dashboard as solar production source.
   Relevant for users with solar panels connected directly to the 
   DC input of the power station.
+
+## [1.5.1] - 2026-11-23
+
+Maintenance release — bug fixes and internal cleanup only, no new entities.
+
+### Fixed
+- Energy sensors (charged / discharged / loss / solar) no longer reset to 0
+  when Home Assistant restarts or the integration reloads while the device is
+  unavailable (e.g. switched off). The counter value is now stored separately
+  from the entity state (`RestoreSensor`).
+- Energy sensors no longer keep accumulating stale power values while the
+  device is unreachable (cached data was integrated again on every poll).
+- Polling and commands are now serialised with a lock — a button press or
+  mode change during a poll could tear down the other connection.
+- Coordinator shutdown now calls the base implementation (refresh timer was
+  not cancelled) and is no longer run twice on unload.
+- Failed commands now raise a visible error in the UI instead of a bare `RuntimeError`.
+- Loss sensor re-seeds capacity after long gaps instead of counting the delta.
+
+### Changed
+- Transient BLE failures: last values are kept for up to 5 consecutive failed
+  polls, after which entities become unavailable (previously cached values
+  were shown indefinitely, while a single connection error made everything unavailable).
+- Already configured devices are hidden in the manual setup dialog.
+- Packet framing unified in `ble_client.py` (frames are byte-identical to 1.5.0);
+  `data_set` now supports multiple values per command. Removed unused `BleakScanner` code.
+- Device model shown as "HL Series" (also covers HomePower devices).
+
+## [1.6.0] - 2026-11-23
+
+Feature release — tooling to resolve open issues. Includes all fixes from 1.5.1.
+
+### Added
+- **Diagnostics download** (Settings → Devices & Services → Ultra Jack → ⋮ →
+  Download diagnostics) including the raw meter map — helps identify unknown
+  meter IDs such as per-string PV values (#7). Serial number, name and
+  address are redacted.
+- Detailed debug logging in the setup dialog: every Jackery advertisement seen
+  by HA Bluetooth is logged with connectability and RSSI, plus the reason a
+  device was skipped (#8).
+- Status sensor now shows **Busy** for state `1` (seen briefly while switching
+  mode / starting to charge) instead of the raw code.
+
+### Changed
+- **Faster Home Assistant startup:** setup no longer waits for the first BLE
+  poll (which could take up to a minute via a Bluetooth proxy). Entities start
+  as unavailable and fill in once the first poll succeeds. If the device is
+  switched off at startup, the integration now loads normally and keeps polling
+  instead of going into a setup retry loop.
+- Transient connection errors (e.g. GATT error 133 via ESPHome proxies) are no
+  longer logged as `ERROR`; they are tolerated and only logged at debug level.
